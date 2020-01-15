@@ -19,6 +19,7 @@ public class SaveService {
         modelRepo.saveAll(list);
     }
 
+    @Transactional
     public void saveAllOneByOne(List<Model> list) {
         for (Model model : list) {
             modelRepo.save(model);
