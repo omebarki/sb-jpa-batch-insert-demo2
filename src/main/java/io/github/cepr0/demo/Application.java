@@ -22,22 +22,25 @@ public class Application {
     @Autowired
     private SaveService saveService;
 
+    @Autowired
+    private ModelRepo modelRepo;
+
 
     public static void main(String[] args) {
         SpringApplication.run(Application.class, args);
     }
 
     @EventListener
-    @Transactional
     public void onReady(ApplicationReadyEvent e) {
         create();
-        //create();
+        //List<Model> models = modelRepo.selectAll();
+        //System.out.println(models.size());
 
     }
 
     private void create() {
         List<Model> list = new ArrayList<>(1000);
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 10; i++) {
             list.add(new Model(i));
         }
         saveService.saveAllOneByOne(list);

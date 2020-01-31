@@ -22,7 +22,7 @@ public class SaveService {
     @Transactional
     public void saveAllOneByOne(List<Model> list) {
         for (Model model : list) {
-            modelRepo.save(model);
+            //modelRepo.save(model);
             model2Repo.save(new Model2(1));
         }
     }
