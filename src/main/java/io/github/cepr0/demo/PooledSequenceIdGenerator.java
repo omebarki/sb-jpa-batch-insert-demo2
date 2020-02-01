@@ -12,7 +12,6 @@ import org.hibernate.type.Type;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.Properties;
-import java.util.function.BiFunction;
 
 /**
  * create table model2(
@@ -29,34 +28,19 @@ public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
     private boolean notInitialized = true;
     private String paramTargetTable;
 
-    BiFunction<SharedSessionContractImplementor, Object, Serializable> generateMethod;
 
     @Override
     public void configure(Type type, Properties params, ServiceRegistry serviceRegistry) throws MappingException {
         super.configure(type, params, serviceRegistry);
         paramTargetTable = ConfigurationHelper.getString(TARGET_TABLE, params).toUpperCase();
-        checkH2();
     }
 
-    private void checkH2() {
-        Class<?> h2Class = null;
-        try {
-            h2Class = Class.forName("org.h2.Driver");
-        } catch (ClassNotFoundException e) {
-            //ignore
-        }
-        if (h2Class != null) {
-            generateMethod = super::generate;
-        } else {
-            generateMethod = this::doGenerate;
-        }
-    }
 
     @Override
     public Serializable generate(
             SharedSessionContractImplementor session,
             Object obj) {
-        return generateMethod.apply(session, obj);
+        return doGenerate(session, obj);
     }
 
     public Serializable doGenerate(
@@ -78,15 +62,23 @@ public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
             databaseStructure.setAccessible(true);
             SequenceStructure sequenceStructure = (SequenceStructure) databaseStructure.get(this);
 
-            Class<? extends SequenceStructure> sequenceStructureClass = sequenceStructure.getClass();
+            Class<?> sequenceStructureClass = sequenceStructure.getClass();
             Field sql = sequenceStructureClass.getDeclaredField(SQL_FIELD);
             sql.setAccessible(true);
-            sql.set(sequenceStructure, buildNextValueSQL(findSequenceName(hibernateSession)));
+
+            String sqlText = (String) sql.get(sequenceStructure);
+            if (isOracle(sqlText)) {
+                sql.set(sequenceStructure, buildNextValueSQL(findSequenceName(hibernateSession)));
+            }
 
 
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private boolean isOracle(String sqlText) {
+        return sqlText != null && sqlText.toLowerCase().endsWith("from dual");
     }
 
     private String findSequenceName(Session hibernateSession) {
