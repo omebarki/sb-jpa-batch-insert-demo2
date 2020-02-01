@@ -1,15 +1,16 @@
 package io.github.cepr0.demo;
 
-import com.sun.corba.se.spi.ior.Identifiable;
 import org.hibernate.MappingException;
 import org.hibernate.Session;
 import org.hibernate.engine.spi.SharedSessionContractImplementor;
+import org.hibernate.id.enhanced.SequenceStructure;
 import org.hibernate.id.enhanced.SequenceStyleGenerator;
 import org.hibernate.internal.util.config.ConfigurationHelper;
 import org.hibernate.service.ServiceRegistry;
 import org.hibernate.type.Type;
 
 import java.io.Serializable;
+import java.lang.reflect.Field;
 import java.util.Properties;
 import java.util.function.BiFunction;
 
@@ -21,13 +22,9 @@ import java.util.function.BiFunction;
  * );
  */
 public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
-    public static final String TARGET_TABLE = "target_table";
-    private String sequenceName = null;
-    private String sequenceSql = null;
-
-    private int paramIncrementSize;
-    private int counter;
-    private long currentSequenceValue;
+    private static final String SQL_FIELD = "sql";
+    private static final String TARGET_TABLE = "target_table";
+    private static final String DATABASE_STRUCTURE_FIELD = "databaseStructure";
 
     private boolean notInitialized = true;
     private String paramTargetTable;
@@ -37,23 +34,19 @@ public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
     @Override
     public void configure(Type type, Properties params, ServiceRegistry serviceRegistry) throws MappingException {
         super.configure(type, params, serviceRegistry);
-        paramIncrementSize = determineIncrementSize(params);
         paramTargetTable = ConfigurationHelper.getString(TARGET_TABLE, params).toUpperCase();
         checkH2();
     }
 
     private void checkH2() {
-        Class h2Class = null;
+        Class<?> h2Class = null;
         try {
             h2Class = Class.forName("org.h2.Driver");
         } catch (ClassNotFoundException e) {
+            //ignore
         }
         if (h2Class != null) {
-            generateMethod = (
-                    SharedSessionContractImplementor session,
-                    Object obj) -> {
-                return super.generate(session, obj);
-            };
+            generateMethod = super::generate;
         } else {
             generateMethod = this::doGenerate;
         }
@@ -70,59 +63,44 @@ public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
             SharedSessionContractImplementor session,
             Object obj) {
 
-        if (obj instanceof Identifiable) {
-            Identifiable identifiable = (Identifiable) obj;
-            Serializable id = identifiable.getId();
-
-            if (id != null) {
-                return id;
-            }
-        }
-
-        Session hibernateSession = Session.class.cast(session);
-
         if (notInitialized) {
             notInitialized = false;
-            counter = 1;
-            findSequenceName(hibernateSession);
-            buildNextValueSQL();
-            currentSequenceValue = nextVal(hibernateSession);
-            if (currentSequenceValue < paramIncrementSize) {
-                counter = paramIncrementSize + 1;
-                return currentSequenceValue;
-            }
+            Session hibernateSession = (Session) session;
+            buildSequenceSQL(hibernateSession);
         }
-        long sequenceValue;
-        if (counter > paramIncrementSize) {
-            currentSequenceValue = nextVal(hibernateSession);
-            counter = 1;
-        }
-        sequenceValue = currentSequenceValue - (paramIncrementSize - counter);
-        counter++;
-
-
-        return sequenceValue;
+        return super.generate(session, obj);
     }
 
-    private void buildNextValueSQL() {
-        sequenceSql = "select " + sequenceName + " from dual";
+    private void buildSequenceSQL(Session hibernateSession) {
+        try {
+            Class<SequenceStyleGenerator> aClass = SequenceStyleGenerator.class;
+            Field databaseStructure = aClass.getDeclaredField(DATABASE_STRUCTURE_FIELD);
+            databaseStructure.setAccessible(true);
+            SequenceStructure sequenceStructure = (SequenceStructure) databaseStructure.get(this);
+
+            Class<? extends SequenceStructure> sequenceStructureClass = sequenceStructure.getClass();
+            Field sql = sequenceStructureClass.getDeclaredField(SQL_FIELD);
+            sql.setAccessible(true);
+            sql.set(sequenceStructure, buildNextValueSQL(findSequenceName(hibernateSession)));
+
+
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
-    private void findSequenceName(Session hibernateSession) {
-        sequenceName = hibernateSession
+    private String findSequenceName(Session hibernateSession) {
+        return hibernateSession
                 .createNativeQuery("SELECT data_default " +
-                        "FROM all_tab_columns " +
-                        "WHERE owner = user " +
-                        "   AND table_name = '" + paramTargetTable + "' " +
+                        "FROM user_tab_columns " +
+                        "WHERE " +
+                        "table_name = '" + paramTargetTable + "' " +
                         "   AND identity_column = 'YES'")
                 .uniqueResult().toString();
     }
 
-
-    private long nextVal(Session hibernateSession) {
-        return ((Number) hibernateSession
-                .createNativeQuery(sequenceSql)
-                .uniqueResult()).longValue();
+    private String buildNextValueSQL(String sequenceName) {
+        return "select " + sequenceName + " from dual";
     }
 
 }
