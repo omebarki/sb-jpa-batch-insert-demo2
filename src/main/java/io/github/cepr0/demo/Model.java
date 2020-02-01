@@ -27,10 +27,10 @@ public class Model {
     @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "ligne_generator")
     @SequenceGenerator(name = "ligne_generator", sequenceName = "ligne_seq", allocationSize = 1000)
     private Long id;
-    private Integer number;
+    private Integer numberr;
 
     Model(Integer number) {
-        this.number = number;
+        this.numberr = number;
     }
 
 

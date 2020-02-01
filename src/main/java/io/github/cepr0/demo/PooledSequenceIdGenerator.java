@@ -11,6 +11,7 @@ import org.hibernate.type.Type;
 
 import java.io.Serializable;
 import java.util.Properties;
+import java.util.function.BiFunction;
 
 /**
  * create table model2(
@@ -31,15 +32,41 @@ public class PooledSequenceIdGenerator extends SequenceStyleGenerator {
     private boolean notInitialized = true;
     private String paramTargetTable;
 
+    BiFunction<SharedSessionContractImplementor, Object, Serializable> generateMethod;
+
     @Override
     public void configure(Type type, Properties params, ServiceRegistry serviceRegistry) throws MappingException {
         super.configure(type, params, serviceRegistry);
         paramIncrementSize = determineIncrementSize(params);
         paramTargetTable = ConfigurationHelper.getString(TARGET_TABLE, params).toUpperCase();
+        checkH2();
+    }
+
+    private void checkH2() {
+        Class h2Class = null;
+        try {
+            h2Class = Class.forName("org.h2.Driver");
+        } catch (ClassNotFoundException e) {
+        }
+        if (h2Class != null) {
+            generateMethod = (
+                    SharedSessionContractImplementor session,
+                    Object obj) -> {
+                return super.generate(session, obj);
+            };
+        } else {
+            generateMethod = this::doGenerate;
+        }
     }
 
     @Override
     public Serializable generate(
+            SharedSessionContractImplementor session,
+            Object obj) {
+        return generateMethod.apply(session, obj);
+    }
+
+    public Serializable doGenerate(
             SharedSessionContractImplementor session,
             Object obj) {
 
